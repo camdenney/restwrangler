@@ -17,7 +17,7 @@ Extract the ZIP. In QGIS, open **Plugins → Python Console**, click **Show Edit
 
 ## Build an agency project
 
-1. Paste the public REST services directory URL and click **Browse**.
+1. Paste an AGOL organization home URL or public REST services directory URL and click **Browse**. AGOL home URLs are resolved automatically through public organization metadata and a paginated hosted-layer search.
 2. Open folders as needed. Services are inspected automatically: single-layer services become checkboxes, and multi-layer services stay collapsed with a group checkbox. Check a group to select all its layers, or expand it to choose individual layers. You can select layers across multiple expanded services.
 3. Enter a destination group path, for example `Coastal Commission / Hazards`.
 4. Keep **Preserve folders, service names, and service subgroups** checked for automatic grouping, or uncheck it to put the selected layers directly in your chosen group.
@@ -40,6 +40,7 @@ Destination groups with matching names are reused at the same hierarchy level. F
 
 Illustrative shapes (replace host, organization ID, and service names):
 
+- AGOL organization home: `https://coastalcomm.maps.arcgis.com/home/index.html` (the bare organization hostname also works)
 - Server directory: `https://HOST/arcgis/rest/services`
 - Server folder: `https://HOST/server/rest/services/Planning`
 - ArcGIS Online organization services: `https://servicesN.arcgis.com/ORG_ID/arcgis/rest/services`
@@ -49,7 +50,7 @@ Illustrative shapes (replace host, organization ID, and service names):
 
 A trailing `?f=json` or `?f=pjson` is accepted and stripped. Other query parameters, embedded credentials, and tokens are rejected: this tool is intended to build shareable public connections.
 
-Use the **service URL**, not the agency Portal home page, item details page, web map URL, or `/sharing/rest` directory. Portal content search and web map import are not included. For an individual REST group layer URL, browse its parent MapServer/FeatureServer endpoint to select its children.
+Use an **AGOL organization home URL** or **service URL**. Enterprise Portal home pages, item details pages, web map URLs, and `/sharing/rest` directory URLs are not supported. General Portal content search and web map import are not included. For an individual REST group layer URL, browse its parent MapServer/FeatureServer endpoint to select its children.
 
 ## Scope and behavior
 
@@ -102,3 +103,11 @@ Additional API references:
 ## Version 0.3.1: branding
 
 Includes the RestWrangler globe cowboy logo in the plugin manager, menu action, and dialog, plus an expanded description explaining how the tool wrangles public ArcGIS REST services into organized, shareable QGIS projects.
+
+## Version 0.4.0: AGOL home URL discovery
+
+Paste an organization home URL, such as `https://coastalcomm.maps.arcgis.com/home/index.html`, or its bare origin `https://coastalcomm.maps.arcgis.com`. RestWrangler reads `/sharing/rest/portals/self` to obtain the organization ID, then searches the organization's public hosted Feature Service items. It follows search pagination, extracts the actual hosting URLs, and lists each distinct matching REST directory. The hosting number is never hardcoded. The lookup filters service paths to the same organization ID and deduplicates directory URLs.
+
+Directories open automatically; the existing collapsed service groups, selection checkboxes, item-title column, and counts remain available. An organization with no discoverable public hosted feature layers produces a clear message asking for a REST services URL. The resolver does not authenticate or find private services, cannot infer directories with no discoverable public hosted feature items, and does not resolve Enterprise Portal home URLs.
+
+Discovery and item-title lookups use the same four-request queue. Closing the dialog or browsing another URL cancels pending requests and discards stale responses. Failed lookups can be retried by collapsing and expanding the organization row.

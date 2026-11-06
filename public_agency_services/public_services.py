@@ -7,7 +7,7 @@ import json
 import os
 from qgis.PyQt.QtGui import QIcon
 import re
-from urllib.parse import urlsplit, urlunsplit, quote, unquote, parse_qsl
+from urllib.parse import urlsplit, urlunsplit, quote, unquote, parse_qsl, urlencode
 
 from qgis.PyQt.QtCore import Qt, QUrl, QTimer, QSettings
 from qgis.PyQt.QtNetwork import QNetworkRequest, QNetworkReply
@@ -33,6 +33,56 @@ SETTING = 'PublicAgencyServices/last_url'
 ICON_PATH = os.path.join(os.path.dirname(globals().get('__file__', '')), 'icon.png')
 
 
+def agol_home_url(text):
+    """Recognize organization home URLs, not item pages or arbitrary hosts."""
+    p = urlsplit(text.strip())
+    host = (p.hostname or '').lower()
+    if (p.scheme.lower() in ('http', 'https') and not p.username and not p.password
+            and p.port in (None, 80, 443)
+            and re.fullmatch(r'[a-z0-9-]+\.maps(?:\.[a-z0-9-]+)?\.arcgis\.com', host)
+            and p.path.rstrip('/').lower() in ('', '/home', '/home/index.html')):
+        return 'https://' + host
+    return None
+
+
+def hosted_directory_urls(items, organization_id):
+    """Discover real hosts from matching hosted feature services; never guess a shard."""
+    roots = set()
+    for item in items:
+        url = item.get('url')
+        if not isinstance(url, str):
+            continue
+        p = urlsplit(url)
+        host = (p.hostname or '').lower()
+        if (p.scheme.lower() not in ('http', 'https') or not host.endswith('.arcgis.com')
+                or p.username or p.password or p.query or p.fragment):
+            continue
+        match = re.fullmatch(r'/([^/]+)/arcgis/rest/services/.+/FeatureServer(?:/\d+)?/?', p.path, re.I)
+        if match and match[1] == organization_id:
+            roots.add(urlunsplit(('https', p.netloc, '/' + organization_id + '/arcgis/rest/services', '', '')))
+    return sorted(roots)
+
+
+def json_request_url(url, start=None):
+    """Preserve encoded search parameters while replacing format/paging parameters."""
+    p = urlsplit(url)
+    query = [(k, v) for k, v in parse_qsl(p.query) if k not in ('f', 'start')]
+    query.append(('f', 'json'))
+    if start is not None:
+        query.append(('start', str(start)))
+    return urlunsplit((p.scheme, p.netloc, p.path, urlencode(query), ''))
+
+
+def merge_metadata_pages(previous, current):
+    merged = dict(current)
+    for key in ('services', 'results'):
+        if key in previous or key in current:
+            merged[key] = previous.get(key, []) + current.get(key, [])
+    if 'folders' in previous or 'folders' in current:
+        merged['folders'] = list(dict.fromkeys(previous.get('folders', []) + current.get('folders', [])))
+    return merged
+
+
 def normalize_url(text):
     """Accept service-directory, folder, service, or numeric layer endpoints."""
     p = urlsplit(text.strip())
@@ -40,9 +90,12 @@ def normalize_url(text):
         raise ValueError('Enter a full http(s) REST services URL without credentials.')
     if any(k.lower() != 'f' for k, _ in parse_qsl(p.query, keep_blank_values=True)):
         raise ValueError('Use a public endpoint without tokens or other query parameters. Only ?f=json is accepted.')
+    home = agol_home_url(text)
+    if home:
+        return home
     path = p.path.rstrip('/')
     if not re.search(r'/rest/services(?:/|$)', path, re.I):
-        raise ValueError('Use the services REST URL ending in /rest/services, a folder, FeatureServer, or MapServer—not a Portal home or sharing/rest URL.')
+        raise ValueError('Enter an AGOL organization home URL or a REST services directory, folder, FeatureServer, or MapServer URL. Enterprise Portal home URLs and item pages are not supported.')
     match = re.search(r'/(FeatureServer|MapServer)(?:/(\d+))?$', path, re.I)
     if match:
         canonical = 'FeatureServer' if match[1].lower() == 'featureserver' else 'MapServer'
@@ -104,10 +157,10 @@ class ServicesDialog(QDialog):
         self.generation = 0
         self.adding = False
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel('Public ArcGIS REST services directory, folder, service, or layer URL:'))
+        layout.addWidget(QLabel('AGOL organization home URL or public ArcGIS REST services URL:'))
         bar = QHBoxLayout()
         self.url = QLineEdit(str(QSettings().value(SETTING, '')))
-        self.url.setPlaceholderText('https://…/arcgis/rest/services')
+        self.url.setPlaceholderText('https://your-agency.maps.arcgis.com/home/index.html or https://…/rest/services')
         self.browse = QPushButton('Browse')
         bar.addWidget(self.url, 1)
         bar.addWidget(self.browse)
@@ -233,8 +286,43 @@ class ServicesDialog(QDialog):
         self.status.setText('Loading ' + data['url'])
         if item.childCount():
             item.child(0).setText(0, 'Discovering layers…')
-        self.pending.append((data['url'], lambda result, error: self.loaded(item, result, error)))
-        self.pump_loads()
+        if agol_home_url(data['url']):
+            self.resolve_organization(item, data['url'])
+        else:
+            self.pending.append((data['url'], lambda result, error: self.loaded(item, result, error)))
+            self.pump_loads()
+
+    def resolve_organization(self, item, home):
+        def failed(message):
+            # Allow a collapse/expand retry to issue fresh metadata requests.
+            self.metadata_cache.pop(home + '/sharing/rest/portals/self', None)
+            self.loaded(item, None, message)
+
+        def organization_ready(result, error):
+            if error:
+                failed('Could not read the AGOL organization: ' + error)
+                return
+            org_id = result.get('id')
+            if not isinstance(org_id, str) or not re.fullmatch(r'[A-Za-z0-9]{16}', org_id):
+                failed('No organization ID was returned. Use an AGOL organization home URL or paste a REST services URL directly.')
+                return
+            query = f'orgid:{org_id} AND type:"Feature Service" AND typekeywords:"Hosted Service"'
+            search_url = home + '/sharing/rest/search?' + urlencode({'q': query, 'num': 100})
+            self.status.setText('Discovering public hosted services for ' + result.get('name', org_id))
+
+            def services_ready(search, search_error):
+                if search_error:
+                    self.metadata_cache.pop(search_url, None)
+                    failed('Could not search public hosted services: ' + search_error)
+                    return
+                roots = hosted_directory_urls(search.get('results', []), org_id)
+                if not roots:
+                    self.metadata_cache.pop(search_url, None)
+                    failed('No public hosted feature-service directory was found for this organization. Paste a known REST services URL directly; private services require sign-in and are not supported.')
+                    return
+                self.loaded(item, {'directories': roots, 'name': result.get('name', org_id)}, None)
+            self.cached_metadata(search_url, services_ready)
+        self.cached_metadata(home + '/sharing/rest/portals/self', organization_ready)
 
     def pump_loads(self):
         # Limit concurrent service metadata requests for large agency catalogs.
@@ -254,8 +342,7 @@ class ServicesDialog(QDialog):
             self.fetch(url, complete, generation)
 
     def fetch(self, url, callback, generation, start=None, accumulated=None):
-        suffix = '?f=json' + ('&start=' + str(start) if start is not None else '')
-        request = QNetworkRequest(QUrl(url + suffix))
+        request = QNetworkRequest(QUrl(json_request_url(url, start)))
         reply = QgsNetworkAccessManager.instance().get(request)
         self.requests.add(reply)
         timer = QTimer(reply)
@@ -278,8 +365,7 @@ class ServicesDialog(QDialog):
                     err = result['error']
                     raise ValueError(str(err.get('message', err)) + ': ' + '; '.join(err.get('details') or []))
                 if accumulated:
-                    result['services'] = accumulated.get('services', []) + result.get('services', [])
-                    result['folders'] = list(dict.fromkeys(accumulated.get('folders', []) + result.get('folders', [])))
+                    result = merge_metadata_pages(accumulated, result)
                 next_start = result.get('nextStart', -1)
                 if isinstance(next_start, int) and next_start > 0:
                     if start is not None and next_start <= start:
@@ -321,6 +407,16 @@ class ServicesDialog(QDialog):
 
     def populate(self, item, result, data):
         url, groups = data['url'], data['groups']
+        if agol_home_url(url):
+            directories = result['directories']
+            item.setText(0, result['name'])
+            item.setText(2, 'AGOL organization')
+            item.setText(3, str(len(directories)) + ' service director' + ('y' if len(directories) == 1 else 'ies'))
+            for directory in directories:
+                child = self.node(item, urlsplit(directory).netloc, 'Services directory', directory, lazy=True)
+                child.setExpanded(True)
+                self.expand(child)
+            return
         parts = service_parts(url)
         if not parts:
             if 'services' not in result and 'folders' not in result:

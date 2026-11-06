@@ -3,11 +3,11 @@ import ast
 import pathlib
 import re
 import unittest
-from urllib.parse import urlsplit, urlunsplit, quote, unquote, parse_qsl
+from urllib.parse import urlsplit, urlunsplit, quote, unquote, parse_qsl, urlencode
 
 source = pathlib.Path(__file__).with_name('public_services.py').read_text()
 tree = ast.parse(source)
-names = {'normalize_url', 'service_parts', 'catalog_child', 'layer_groups'}
+names = {'agol_home_url', 'hosted_directory_urls', 'json_request_url', 'merge_metadata_pages', 'normalize_url', 'service_parts', 'catalog_child', 'layer_groups'}
 module = ast.Module(body=[n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in names], type_ignores=[])
 exec(compile(module, '<helpers>', 'exec'), globals())
 
@@ -43,6 +43,38 @@ class HelpersTest(unittest.TestCase):
         self.assertEqual(layer_groups({'id': 20, 'parentLayerId': 99}, rows), [])
         rows[0]['parentLayerId'] = 8
         self.assertEqual(layer_groups(rows[8], rows), ['Hazards', 'Flood'])
+
+    def test_home_url_normalization(self):
+        for suffix in ['', '/', '/home/', '/home/index.html', '/home/index.html?f=pjson']:
+            self.assertEqual(normalize_url('https://coastalcomm.maps.arcgis.com' + suffix),
+                             'https://coastalcomm.maps.arcgis.com')
+        for url in ['https://coastalcomm.maps.arcgis.com/home/item.html?id=abc',
+                    'https://evil.example/home/index.html',
+                    'https://coastalcomm.maps.arcgis.com.evil.example/home/index.html',
+                    'https://coastalcomm.maps.arcgis.com?token=secret']:
+            with self.assertRaises(ValueError): normalize_url(url)
+
+    def test_different_hosts_and_wrong_organization(self):
+        org = 'wwVnNW92ZHUIr0V0'
+        roots = hosted_directory_urls([
+            {'url': f'https://services9.arcgis.com/{org}/arcgis/rest/services/A/FeatureServer'},
+            {'url': f'https://services9.arcgis.com/{org}/arcgis/rest/services/B/FeatureServer'},
+            {'url': f'https://services2.arcgis.com/{org}/arcgis/rest/services/C/FeatureServer'},
+            {'url': 'https://services1.arcgis.com/OTHERORG12345678/arcgis/rest/services/D/FeatureServer'},
+            {'url': f'https://evil.example/{org}/arcgis/rest/services/E/FeatureServer'},
+            {'url': None}], org)
+        self.assertEqual(roots, [f'https://services2.arcgis.com/{org}/arcgis/rest/services',
+                                 f'https://services9.arcgis.com/{org}/arcgis/rest/services'])
+
+    def test_search_query_and_pagination_preserved(self):
+        query = 'orgid:wwVnNW92ZHUIr0V0 AND type:"Feature Service"'
+        url = 'https://org.maps.arcgis.com/sharing/rest/search?' + urlencode({'q': query, 'num': 100})
+        params = dict(parse_qsl(urlsplit(json_request_url(url, 101)).query))
+        self.assertEqual(params, {'q': query, 'num': '100', 'f': 'json', 'start': '101'})
+        merged = merge_metadata_pages({'results': [{'url': 'first'}], 'nextStart': 101},
+                                      {'results': [{'url': 'second'}], 'nextStart': -1})
+        self.assertEqual([x['url'] for x in merged['results']], ['first', 'second'])
+        self.assertEqual(merged['nextStart'], -1)
 
 
 if __name__ == '__main__':

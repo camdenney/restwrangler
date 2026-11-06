@@ -8,7 +8,7 @@ RestWrangler is a QGIS plugin for browsing public ArcGIS Online and ArcGIS Enter
 
 ## Download and install
 
-**[Download RestWrangler v0.3.1 — Preview](https://github.com/camdenney/restwrangler/raw/refs/heads/main/downloads/RestWrangler_QGIS.zip)**
+**[Download RestWrangler v0.4.0 — Preview](https://github.com/camdenney/restwrangler/raw/refs/heads/main/downloads/RestWrangler_QGIS.zip)**
 
 1. Download the plugin ZIP above without extracting it.
 2. In QGIS, open **Plugins → Manage and Install Plugins → Install from ZIP**.
@@ -21,6 +21,7 @@ Designed for QGIS 3.40+ and QGIS 4.x. **Experimental preview:** syntax and simul
 
 ## Features
 
+- Paste an ArcGIS Online organization home URL to discover its public hosted feature-service directories automatically.
 - Browse public REST directories, folders, FeatureServer services, and MapServer services.
 - Select single layers directly, or select every sublayer with a group checkbox.
 - Keep groups collapsed, with partial checkmarks for mixed selections.
@@ -32,9 +33,9 @@ Designed for QGIS 3.40+ and QGIS 4.x. **Experimental preview:** syntax and simul
 
 ## Quick start
 
-Paste a public URL ending in `/rest/services`, a directory folder, `/FeatureServer`, `/MapServer`, or an individual layer number. Open a folder, select layers or groups, choose a destination such as `Agency / Hazards`, and click **Add checked layers**. Layers are initially switched off unless you enable **Turn added layers on**.
+Paste an AGOL organization home URL such as `https://coastalcomm.maps.arcgis.com/home/index.html`, or a public REST URL ending in `/rest/services`, a directory folder, `/FeatureServer`, `/MapServer`, or an individual layer number. Open a folder, select layers or groups, choose a destination such as `Agency / Hazards`, and click **Add checked layers**. Layers are initially switched off unless you enable **Turn added layers on**.
 
-Use the actual service URL, rather than a Portal home page, web map, or item-details page. The project uses live services; it does not download an offline copy of the data.
+AGOL organization home URLs and REST service URLs are supported. Enterprise Portal home pages, web maps, and item-details pages are not supported. The AGOL lookup reads the organization ID and searches public hosted feature-service items, preserving their actual service hostnames; it never guesses a `services` number. It lists distinct directories found across the search results. If no public hosted layers expose a matching directory, paste a REST services URL directly. The project uses live services; it does not download an offline copy of the data.
 
 See the **[full user guide](public_agency_services/README.md)** for accepted URLs, grouping, troubleshooting, and known limitations.
 

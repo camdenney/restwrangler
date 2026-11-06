@@ -4,7 +4,7 @@ import pathlib
 import re
 import unittest
 from types import SimpleNamespace
-from urllib.parse import urlsplit, urlunsplit, quote, unquote, parse_qsl
+from urllib.parse import urlsplit, urlunsplit, quote, unquote, parse_qsl, urlencode
 
 ROLE, UNCHECKED, CHECKED, PARTIAL = 32, 0, 2, 1
 Qt = SimpleNamespace(ItemFlag=SimpleNamespace(ItemIsUserCheckable=16))
@@ -41,7 +41,7 @@ class Item:
 
 QTreeWidgetItem = Item
 source = pathlib.Path(__file__).with_name('public_services.py').read_text()
-names = {'normalize_url', 'service_parts', 'catalog_child', 'layer_groups', 'ServicesDialog'}
+names = {'agol_home_url', 'hosted_directory_urls', 'json_request_url', 'merge_metadata_pages', 'normalize_url', 'service_parts', 'catalog_child', 'layer_groups', 'ServicesDialog'}
 module = ast.Module(body=[n for n in ast.parse(source).body
                          if isinstance(n, (ast.FunctionDef, ast.ClassDef)) and n.name in names], type_ignores=[])
 exec(compile(module, '<discovery>', 'exec'), globals())
@@ -177,6 +177,47 @@ class DiscoveryTest(unittest.TestCase):
         self.calls[1][1](None, 'Item is not public')
         self.assertEqual(item.text(1), 'Example')
         self.assertEqual(item.check, UNCHECKED)
+
+    def test_home_to_directories_to_service_layers(self):
+        home = 'https://coastalcomm.maps.arcgis.com'
+        org = 'wwVnNW92ZHUIr0V0'
+        item = self.d.node(None, 'Organization', 'Endpoint', home, lazy=True)
+        self.d.expand(item)
+        self.assertEqual(self.calls[0][0], home + '/sharing/rest/portals/self')
+        self.calls[0][1]({'id': org, 'name': 'Coastal Commission'}, None)
+        params = dict(parse_qsl(urlsplit(self.calls[1][0]).query))
+        self.assertIn('orgid:' + org, params['q'])
+        directory = f'https://services2.arcgis.com/{org}/arcgis/rest/services'
+        self.calls[1][1]({'results': [{'url': directory + '/Parcels/FeatureServer'}]}, None)
+        self.assertEqual(item.text(0), 'Coastal Commission')
+        self.assertEqual(item.childCount(), 1)
+        self.assertEqual(item.child(0).data(0, ROLE)['url'], directory)
+        self.assertTrue(item.child(0).expanded)
+        self.assertEqual(self.calls[2][0], directory)
+        self.calls[2][1]({'services': [{'name': 'Parcels', 'type': 'FeatureServer'}]}, None)
+        self.calls[3][1]({'layers': [{'id': 3, 'name': 'survey'}]}, None)
+        leaf = item.child(0).child(0)
+        self.assertEqual(leaf.check, UNCHECKED)
+        self.assertTrue(leaf.data(0, ROLE)['url'].endswith('/FeatureServer/3'))
+
+    def test_no_public_services_is_retryable(self):
+        item = self.d.node(None, 'Org', 'Endpoint', 'https://example.maps.arcgis.com', lazy=True)
+        self.d.expand(item)
+        self.calls[0][1]({'id': 'a' * 16}, None)
+        self.calls[1][1]({'results': []}, None)
+        self.assertTrue(item.data(0, ROLE)['lazy'])
+        self.assertFalse(item.data(0, ROLE)['loading'])
+        self.assertEqual(item.text(3), 'Unavailable')
+        self.assertEqual(self.d.active_loads, 0)
+        self.d.expand(item)
+        self.assertEqual(len(self.calls), 3)
+
+    def test_missing_organization_id(self):
+        item = self.d.node(None, 'Org', 'Endpoint', 'https://example.maps.arcgis.com', lazy=True)
+        self.d.expand(item)
+        self.calls[0][1]({'id': None}, None)
+        self.assertTrue(item.data(0, ROLE)['lazy'])
+        self.assertEqual(len(self.calls), 1)
 
 
 if __name__ == '__main__':
