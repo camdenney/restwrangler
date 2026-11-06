@@ -120,3 +120,7 @@ Paste a site root on `*.opendata.arcgis.com` or `*.hub.arcgis.com`. RestWrangler
 The site count reports distinct supported service URLs in its public catalog, not every service owned by its organization. Entries pointing to an individual sublayer retain that sublayer URL. Live discovery checks returned 67 service entries for Caltrans and 9 for California State Lands Commission, including School Lands; catalog contents can change.
 
 Layer-selection indicators are now 18-pixel boxes with a visible border: white for unchecked, green with a white tick for checked, and amber with a white dash for partial selections. Checkbox propagation and SVG rendering were checked in an offscreen PyQt5 dialog with a dark palette. Full QGIS/Windows provider and UI testing remains to be completed.
+
+## Version 0.5.1: native checkboxes and row spacing
+
+Restores the original native checkbox appearance after the custom indicators caused rendering problems on Windows. Adds approximately one point to each row's height using the screen's logical DPI, while keeping native checkbox painting and selection behavior. Open Data discovery is unchanged.

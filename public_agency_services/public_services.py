@@ -14,7 +14,7 @@ from qgis.PyQt.QtNetwork import QNetworkRequest, QNetworkReply
 from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTreeWidget, QTreeWidgetItem, QCheckBox, QComboBox, QMessageBox,
-    QProgressDialog, QAbstractItemView, QApplication,
+    QProgressDialog, QAbstractItemView, QApplication, QStyledItemDelegate,
 )
 try:
     from qgis.PyQt.QtGui import QAction
@@ -182,6 +182,15 @@ def direct_group(parent, name):
     return parent.addGroup(name)
 
 
+class SpacedRowDelegate(QStyledItemDelegate):
+    """Keep native checkbox painting and add about one point to row height."""
+    def sizeHint(self, option, index):
+        size = super().sizeHint(option, index)
+        widget = option.widget or self.parent()
+        size.setHeight(size.height() + max(1, round(widget.logicalDpiY() / 72.0)))
+        return size
+
+
 class ServicesDialog(QDialog):
     def __init__(self, iface):
         super().__init__(iface.mainWindow())
@@ -212,7 +221,7 @@ class ServicesDialog(QDialog):
         layout.addWidget(self.search)
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(['Layer / group', 'Item / service name', 'Type', 'Count', 'REST URL'])
-        self.style_checkboxes()
+        self.tree.setItemDelegate(SpacedRowDelegate(self.tree))
         self.tree.setColumnWidth(0, 280)
         self.tree.setColumnWidth(1, 290)
         self.tree.setColumnWidth(2, 120)
@@ -268,22 +277,6 @@ class ServicesDialog(QDialog):
         self.search.textChanged.connect(self.filter_tree)
         self.add.clicked.connect(self.add_layers)
         close.clicked.connect(self.close)
-
-    def style_checkboxes(self):
-        """Explicit high-contrast states for native Windows and dark themes."""
-        folder = os.path.dirname(ICON_PATH)
-        checked = os.path.abspath(os.path.join(folder, 'checkmark.svg')).replace(chr(92), '/')
-        partial = os.path.abspath(os.path.join(folder, 'partial.svg')).replace(chr(92), '/')
-        self.tree.setStyleSheet("""
-            QTreeWidget::indicator { width: 18px; height: 18px; margin: 2px;
-                border: 2px solid #64748b; border-radius: 3px; }
-            QTreeWidget::indicator:unchecked { background-color: #ffffff; }
-            QTreeWidget::indicator:unchecked:hover { background-color: #e0f2fe; border-color: #0284c7; }
-            QTreeWidget::indicator:checked { background-color: #15803d; border-color: #86efac;
-                image: url("%s"); }
-            QTreeWidget::indicator:indeterminate { background-color: #b45309; border-color: #fcd34d;
-                image: url("%s"); }
-        """ % (checked, partial))
 
     def items(self):
         def walk(parent):

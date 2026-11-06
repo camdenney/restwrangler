@@ -7,7 +7,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parent
 PLUGIN = ROOT / 'public_agency_services'
 FILES = ('__init__.py', 'public_services.py', 'metadata.txt', 'icon.png',
-         'README.md', 'LICENSE', 'test_helpers.py', 'test_discovery.py', 'checkmark.svg', 'partial.svg')
+         'README.md', 'LICENSE', 'test_helpers.py', 'test_discovery.py')
 
 
 def main():

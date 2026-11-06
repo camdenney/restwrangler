@@ -8,7 +8,7 @@ RestWrangler is a QGIS plugin for browsing public ArcGIS Online and ArcGIS Enter
 
 ## Download and install
 
-**[Download RestWrangler v0.5.0 — Preview](https://github.com/camdenney/restwrangler/raw/refs/heads/main/downloads/RestWrangler_QGIS.zip)**
+**[Download RestWrangler v0.5.1 — Preview](https://github.com/camdenney/restwrangler/raw/refs/heads/main/downloads/RestWrangler_QGIS.zip)**
 
 1. Download the plugin ZIP above without extracting it.
 2. In QGIS, open **Plugins → Manage and Install Plugins → Install from ZIP**.
@@ -23,7 +23,7 @@ Designed for QGIS 3.40+ and QGIS 4.x. **Experimental preview:** syntax and simul
 
 - Paste an ArcGIS Online organization home URL to discover its public hosted feature-service directories automatically.
 - Browse ArcGIS Hub/Open Data site catalogs, including services on external agency servers.
-- Use high-contrast unchecked, checked, and partial-selection boxes.
+- Use native checkboxes with approximately one point of extra row spacing.
 - Browse public REST directories, folders, FeatureServer services, and MapServer services.
 - Select single layers directly, or select every sublayer with a group checkbox.
 - Keep groups collapsed, with partial checkmarks for mixed selections.
