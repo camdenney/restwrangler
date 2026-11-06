@@ -45,6 +45,47 @@ def agol_home_url(text):
     return None
 
 
+def hub_home_url(text):
+    """Recognize ArcGIS-hosted Hub/Open Data site roots, not dataset pages."""
+    p = urlsplit(text.strip())
+    host = (p.hostname or '').lower()
+    if (p.scheme.lower() in ('http', 'https') and not p.username and not p.password
+            and p.port in (None, 80, 443) and p.path.rstrip('/') == ''
+            and re.fullmatch(r'[a-z0-9-]+\.(?:opendata|hub)\.arcgis\.com', host)):
+        return 'https://' + host
+    return None
+
+
+def hub_catalog_groups(site_data, site_item=None):
+    """Read explicit legacy catalog groups, with content-group fallback."""
+    groups = site_data.get('catalog', {}).get('groups', [])
+    valid = [g for g in groups if isinstance(g, str) and re.fullmatch(r'[0-9a-fA-F]{32}', g)]
+    if not valid and site_item:
+        group = (site_item.get('properties') or {}).get('contentGroupId')
+        if isinstance(group, str) and re.fullmatch(r'[0-9a-fA-F]{32}', group):
+            valid.append(group)
+    return list(dict.fromkeys(valid))
+
+
+def catalog_service_items(results):
+    """Keep supported public ArcGIS endpoints, including non-hosted agency servers."""
+    services, seen = [], set()
+    for row in results:
+        if row.get('type') not in ('Feature Service', 'Map Service'):
+            continue
+        try:
+            url = normalize_url(row.get('url') or '')
+        except (ValueError, TypeError):
+            continue
+        parts = service_parts(url)
+        if not parts or url in seen:
+            continue
+        seen.add(url)
+        services.append({'url': url, 'title': row.get('title') or unquote(parts[0].rsplit('/', 2)[-2]),
+                         'kind': parts[1]})
+    return services
+
+
 def hosted_directory_urls(items, organization_id):
     """Discover real hosts from matching hosted feature services; never guess a shard."""
     roots = set()
@@ -90,12 +131,12 @@ def normalize_url(text):
         raise ValueError('Enter a full http(s) REST services URL without credentials.')
     if any(k.lower() != 'f' for k, _ in parse_qsl(p.query, keep_blank_values=True)):
         raise ValueError('Use a public endpoint without tokens or other query parameters. Only ?f=json is accepted.')
-    home = agol_home_url(text)
+    home = agol_home_url(text) or hub_home_url(text)
     if home:
         return home
     path = p.path.rstrip('/')
     if not re.search(r'/rest/services(?:/|$)', path, re.I):
-        raise ValueError('Enter an AGOL organization home URL or a REST services directory, folder, FeatureServer, or MapServer URL. Enterprise Portal home URLs and item pages are not supported.')
+        raise ValueError('Enter an AGOL home URL, an ArcGIS Hub/Open Data site root, or a REST services URL. Enterprise Portal home URLs, custom-domain sites, and item/dataset pages are not supported.')
     match = re.search(r'/(FeatureServer|MapServer)(?:/(\d+))?$', path, re.I)
     if match:
         canonical = 'FeatureServer' if match[1].lower() == 'featureserver' else 'MapServer'
@@ -157,7 +198,7 @@ class ServicesDialog(QDialog):
         self.generation = 0
         self.adding = False
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel('AGOL organization home URL or public ArcGIS REST services URL:'))
+        layout.addWidget(QLabel('AGOL home, ArcGIS Hub/Open Data site, or public REST services URL:'))
         bar = QHBoxLayout()
         self.url = QLineEdit(str(QSettings().value(SETTING, '')))
         self.url.setPlaceholderText('https://your-agency.maps.arcgis.com/home/index.html or https://…/rest/services')
@@ -171,6 +212,7 @@ class ServicesDialog(QDialog):
         layout.addWidget(self.search)
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(['Layer / group', 'Item / service name', 'Type', 'Count', 'REST URL'])
+        self.style_checkboxes()
         self.tree.setColumnWidth(0, 280)
         self.tree.setColumnWidth(1, 290)
         self.tree.setColumnWidth(2, 120)
@@ -226,6 +268,22 @@ class ServicesDialog(QDialog):
         self.search.textChanged.connect(self.filter_tree)
         self.add.clicked.connect(self.add_layers)
         close.clicked.connect(self.close)
+
+    def style_checkboxes(self):
+        """Explicit high-contrast states for native Windows and dark themes."""
+        folder = os.path.dirname(ICON_PATH)
+        checked = os.path.abspath(os.path.join(folder, 'checkmark.svg')).replace(chr(92), '/')
+        partial = os.path.abspath(os.path.join(folder, 'partial.svg')).replace(chr(92), '/')
+        self.tree.setStyleSheet("""
+            QTreeWidget::indicator { width: 18px; height: 18px; margin: 2px;
+                border: 2px solid #64748b; border-radius: 3px; }
+            QTreeWidget::indicator:unchecked { background-color: #ffffff; }
+            QTreeWidget::indicator:unchecked:hover { background-color: #e0f2fe; border-color: #0284c7; }
+            QTreeWidget::indicator:checked { background-color: #15803d; border-color: #86efac;
+                image: url("%s"); }
+            QTreeWidget::indicator:indeterminate { background-color: #b45309; border-color: #fcd34d;
+                image: url("%s"); }
+        """ % (checked, partial))
 
     def items(self):
         def walk(parent):
@@ -286,11 +344,59 @@ class ServicesDialog(QDialog):
         self.status.setText('Loading ' + data['url'])
         if item.childCount():
             item.child(0).setText(0, 'Discovering layers…')
-        if agol_home_url(data['url']):
+        if hub_home_url(data['url']):
+            self.resolve_hub(item, data['url'])
+        elif agol_home_url(data['url']):
             self.resolve_organization(item, data['url'])
         else:
             self.pending.append((data['url'], lambda result, error: self.loaded(item, result, error)))
             self.pump_loads()
+
+    def resolve_hub(self, item, home):
+        attempted = []
+        def failed(message):
+            for url in attempted:
+                self.metadata_cache.pop(url, None)
+            self.loaded(item, None, message)
+        def request(url, callback):
+            attempted.append(url)
+            self.cached_metadata(url, callback)
+        def domain_ready(domain, error):
+            if error:
+                failed('Could not resolve the ArcGIS Hub/Open Data site: ' + error)
+                return
+            site_id = domain.get('siteId') or domain.get('itemId')
+            if not isinstance(site_id, str) or not re.fullmatch(r'[0-9a-fA-F]{32}', site_id):
+                failed('The Hub domain response did not identify a site item. Paste a REST services URL directly.')
+                return
+            base = 'https://www.arcgis.com/sharing/rest/content/items/' + site_id
+            def item_ready(site_item, item_error):
+                if item_error:
+                    failed('Could not read the public Hub site item: ' + item_error)
+                    return
+                def data_ready(site_data, data_error):
+                    if data_error:
+                        failed('Could not read the public Hub catalog: ' + data_error)
+                        return
+                    groups = hub_catalog_groups(site_data, site_item)
+                    if not groups:
+                        failed('This site does not expose a supported group-based catalog. Paste an AGOL home URL or REST services URL directly.')
+                        return
+                    query = '(' + ' OR '.join('group:' + g for g in groups) + ') AND (type:"Feature Service" OR type:"Map Service")'
+                    search_url = 'https://www.arcgis.com/sharing/rest/search?' + urlencode({'q': query, 'num': 100})
+                    def search_ready(search, search_error):
+                        if search_error:
+                            failed('Could not search the public Hub catalog: ' + search_error)
+                            return
+                        services = catalog_service_items(search.get('results', []))
+                        if not services:
+                            failed('No public FeatureServer or MapServer entries were found in this site catalog.')
+                            return
+                        self.loaded(item, {'catalog_services': services, 'name': site_item.get('title') or domain.get('siteTitle') or home}, None)
+                    request(search_url, search_ready)
+                request(base + '/data', data_ready)
+            request(base, item_ready)
+        request('https://hub.arcgis.com/api/v3/domains/' + quote(urlsplit(home).hostname, safe=''), domain_ready)
 
     def resolve_organization(self, item, home):
         def failed(message):
@@ -395,7 +501,10 @@ class ServicesDialog(QDialog):
             item.setData(0, ROLE, data)
             if service_parts(data['url']):
                 self.configure_service(item)
-                self.resolve_item_title(item, result)
+                if data.get('catalog_title'):
+                    self.set_service_title(item, data['catalog_title'], 'Public item title from the Hub site catalog.')
+                else:
+                    self.resolve_item_title(item, result)
             self.status.setText('Layers ready. Remaining service checks: ' +
                                 str(len(self.pending) + max(0, self.active_loads - 1)))
         except Exception as exc:
@@ -407,6 +516,20 @@ class ServicesDialog(QDialog):
 
     def populate(self, item, result, data):
         url, groups = data['url'], data['groups']
+        if hub_home_url(url):
+            services = result['catalog_services']
+            item.setText(0, result['name'])
+            item.setText(2, 'Hub / Open Data')
+            item.setText(3, str(len(services)) + (' service entry' if len(services) == 1 else ' service entries'))
+            item.setToolTip(3, 'Distinct supported service/layer URLs in the public site catalog; not every service owned by the organization.')
+            for service in services:
+                child = self.node(item, service['title'], service['kind'], service['url'], groups, lazy=True)
+                info = child.data(0, ROLE)
+                info['catalog_title'] = service['title']
+                child.setData(0, ROLE, info)
+                child.setText(1, service['title'])
+                self.expand(child)
+            return
         if agol_home_url(url):
             directories = result['directories']
             item.setText(0, result['name'])

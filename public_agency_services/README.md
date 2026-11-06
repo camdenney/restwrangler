@@ -9,7 +9,7 @@ Build a reusable agency QGIS project from public ArcGIS Online or ArcGIS Enterpr
 3. Select the ZIP and install it. Enable **RestWrangler** if needed.
 4. Open **Plugins → RestWrangler → RestWrangler…**.
 
-Designed for QGIS 3.40+ and QGIS 4.x (Qt5/Qt6). This is an experimental first release: Python syntax, URL/grouping tests, simulated tree/network discovery tests, and ZIP structure have been checked, but live QGIS UI/provider testing has not been performed.
+Designed for QGIS 3.40+ and QGIS 4.x (Qt5/Qt6). This is an experimental preview: Python syntax, URL/grouping tests, simulated tree/network discovery tests, and ZIP structure have been checked, but live QGIS UI/provider testing has not been performed.
 
 ## Run only the Python script instead
 
@@ -17,7 +17,7 @@ Extract the ZIP. In QGIS, open **Plugins → Python Console**, click **Show Edit
 
 ## Build an agency project
 
-1. Paste an AGOL organization home URL or public REST services directory URL and click **Browse**. AGOL home URLs are resolved automatically through public organization metadata and a paginated hosted-layer search.
+1. Paste an AGOL organization home URL, ArcGIS Hub/Open Data site root, or public REST services directory URL and click **Browse**. AGOL home URLs are resolved automatically through public organization metadata and a paginated hosted-layer search.
 2. Open folders as needed. Services are inspected automatically: single-layer services become checkboxes, and multi-layer services stay collapsed with a group checkbox. Check a group to select all its layers, or expand it to choose individual layers. You can select layers across multiple expanded services.
 3. Enter a destination group path, for example `Coastal Commission / Hazards`.
 4. Keep **Preserve folders, service names, and service subgroups** checked for automatic grouping, or uncheck it to put the selected layers directly in your chosen group.
@@ -41,6 +41,7 @@ Destination groups with matching names are reused at the same hierarchy level. F
 Illustrative shapes (replace host, organization ID, and service names):
 
 - AGOL organization home: `https://coastalcomm.maps.arcgis.com/home/index.html` (the bare organization hostname also works)
+- Hub/Open Data site: `https://gisdata-caltrans.opendata.arcgis.com/` or `https://data-cslc.opendata.arcgis.com/`
 - Server directory: `https://HOST/arcgis/rest/services`
 - Server folder: `https://HOST/server/rest/services/Planning`
 - ArcGIS Online organization services: `https://servicesN.arcgis.com/ORG_ID/arcgis/rest/services`
@@ -50,7 +51,7 @@ Illustrative shapes (replace host, organization ID, and service names):
 
 A trailing `?f=json` or `?f=pjson` is accepted and stripped. Other query parameters, embedded credentials, and tokens are rejected: this tool is intended to build shareable public connections.
 
-Use an **AGOL organization home URL** or **service URL**. Enterprise Portal home pages, item details pages, web map URLs, and `/sharing/rest` directory URLs are not supported. General Portal content search and web map import are not included. For an individual REST group layer URL, browse its parent MapServer/FeatureServer endpoint to select its children.
+Use an **AGOL organization home URL**, **Hub/Open Data site root**, or **service URL**. Custom-domain Hub sites and dataset pages are not supported. Enterprise Portal home pages, item details pages, web map URLs, and `/sharing/rest` directory URLs are not supported. General Portal content search and web map import are not included. For an individual REST group layer URL, browse its parent MapServer/FeatureServer endpoint to select its children.
 
 ## Scope and behavior
 
@@ -111,3 +112,11 @@ Paste an organization home URL, such as `https://coastalcomm.maps.arcgis.com/hom
 Directories open automatically; the existing collapsed service groups, selection checkboxes, item-title column, and counts remain available. An organization with no discoverable public hosted feature layers produces a clear message asking for a REST services URL. The resolver does not authenticate or find private services, cannot infer directories with no discoverable public hosted feature items, and does not resolve Enterprise Portal home URLs.
 
 Discovery and item-title lookups use the same four-request queue. Closing the dialog or browsing another URL cancels pending requests and discards stale responses. Failed lookups can be retried by collapsing and expanding the organization row.
+
+## Version 0.5.0: Open Data catalogs and visible checkboxes
+
+Paste a site root on `*.opendata.arcgis.com` or `*.hub.arcgis.com`. RestWrangler resolves the site item through the public Hub domain API, reads its catalog groups (with a content-group fallback), and searches those groups for public Feature Service and Map Service items. Both AGOL hosts and external agency REST servers are supported. Catalog item titles are retained in the item/service column. Search results are paginated and duplicate endpoint URLs are removed. Sites without supported catalog groups show a clear error; custom-domain sites and dataset pages are not yet supported.
+
+The site count reports distinct supported service URLs in its public catalog, not every service owned by its organization. Entries pointing to an individual sublayer retain that sublayer URL. Live discovery checks returned 67 service entries for Caltrans and 9 for California State Lands Commission, including School Lands; catalog contents can change.
+
+Layer-selection indicators are now 18-pixel boxes with a visible border: white for unchecked, green with a white tick for checked, and amber with a white dash for partial selections. Checkbox propagation and SVG rendering were checked in an offscreen PyQt5 dialog with a dark palette. Full QGIS/Windows provider and UI testing remains to be completed.

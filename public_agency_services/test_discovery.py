@@ -41,7 +41,7 @@ class Item:
 
 QTreeWidgetItem = Item
 source = pathlib.Path(__file__).with_name('public_services.py').read_text()
-names = {'agol_home_url', 'hosted_directory_urls', 'json_request_url', 'merge_metadata_pages', 'normalize_url', 'service_parts', 'catalog_child', 'layer_groups', 'ServicesDialog'}
+names = {'hub_home_url', 'hub_catalog_groups', 'catalog_service_items', 'agol_home_url', 'hosted_directory_urls', 'json_request_url', 'merge_metadata_pages', 'normalize_url', 'service_parts', 'catalog_child', 'layer_groups', 'ServicesDialog'}
 module = ast.Module(body=[n for n in ast.parse(source).body
                          if isinstance(n, (ast.FunctionDef, ast.ClassDef)) and n.name in names], type_ignores=[])
 exec(compile(module, '<discovery>', 'exec'), globals())
@@ -218,6 +218,36 @@ class DiscoveryTest(unittest.TestCase):
         self.calls[0][1]({'id': None}, None)
         self.assertTrue(item.data(0, ROLE)['lazy'])
         self.assertEqual(len(self.calls), 1)
+
+    def test_hub_catalog_includes_non_agol_services(self):
+        home = 'https://gisdata-caltrans.opendata.arcgis.com'
+        root = self.d.node(None, 'Hub', 'Endpoint', home, lazy=True)
+        self.d.expand(root)
+        self.assertEqual(self.calls[0][0], 'https://hub.arcgis.com/api/v3/domains/gisdata-caltrans.opendata.arcgis.com')
+        self.calls[0][1]({'siteId': 'a' * 32}, None)
+        self.calls[1][1]({'title': 'Caltrans Home'}, None)
+        self.calls[2][1]({'catalog': {'groups': ['b' * 32]}}, None)
+        self.assertIn('group:' + 'b' * 32, dict(parse_qsl(urlsplit(self.calls[3][0]).query))['q'])
+        url = 'https://caltrans-gis.dot.ca.gov/arcgis/rest/services/CHboundary/Districts/FeatureServer/0'
+        self.calls[3][1]({'results': [{'type': 'Feature Service', 'title': 'Caltrans Districts', 'url': url}]}, None)
+        self.assertEqual(root.text(3), '1 service entry')
+        self.assertEqual(self.calls[4][0], url)
+        self.calls[4][1]({'id': 0, 'name': 'survey'}, None)
+        self.assertEqual(root.child(0).check, UNCHECKED)
+        self.assertEqual(root.child(0).text(1), 'Caltrans Districts')
+        self.assertEqual(root.child(0).data(0, ROLE)['url'], url)
+
+    def test_hub_without_supported_catalog_can_retry(self):
+        root = self.d.node(None, 'Hub', 'Endpoint', 'https://example.hub.arcgis.com', lazy=True)
+        self.d.expand(root)
+        self.calls[0][1]({'siteId': 'a' * 32}, None)
+        self.calls[1][1]({'title': 'Empty site'}, None)
+        self.calls[2][1]({}, None)
+        self.assertTrue(root.data(0, ROLE)['lazy'])
+        self.assertEqual(root.text(3), 'Unavailable')
+        self.assertEqual(self.d.active_loads, 0)
+        self.d.expand(root)
+        self.assertEqual(len(self.calls), 4)
 
 
 if __name__ == '__main__':

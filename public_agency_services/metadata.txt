@@ -2,11 +2,11 @@
 name=RestWrangler
 qgisMinimumVersion=3.40
 qgisMaximumVersion=4.99
-version=0.4.0
+version=0.5.0
 author=RestWrangler contributors
 email=
 description=Wrangle ArcGIS REST services into organized, shareable QGIS projects.
-about=RestWrangler wrangles public ArcGIS REST services from ArcGIS Online and ArcGIS Enterprise into your current QGIS project. Paste an AGOL organization home URL to discover its public hosted service directories automatically, or browse service directories directly. Identify layers by their item or service names, see layer and service counts, and select individual layers or entire groups with one click. Organize connections into custom nested groups or preserve the service hierarchy. Supports FeatureServer layers and tables, plus MapServer layers as server-styled map images or queryable vectors where supported. Save and share a standard QGIS project so colleagues can use essential public agency data without an Esri license or this plugin installed. An internet connection and accessible public services are required; data is not downloaded for offline use.
+about=RestWrangler wrangles public ArcGIS REST services from ArcGIS Online and ArcGIS Enterprise into your current QGIS project. Paste an AGOL organization home URL to discover its public hosted service directories automatically, browse an ArcGIS Hub/Open Data site catalog, or browse service directories directly. High-contrast checkboxes make unchecked, checked, and partial selections distinct. Identify layers by their item or service names, see layer and service counts, and select individual layers or entire groups with one click. Organize connections into custom nested groups or preserve the service hierarchy. Supports FeatureServer layers and tables, plus MapServer layers as server-styled map images or queryable vectors where supported. Save and share a standard QGIS project so colleagues can use essential public agency data without an Esri license or this plugin installed. An internet connection and accessible public services are required; data is not downloaded for offline use.
 category=Web
 experimental=True
 icon=icon.png
